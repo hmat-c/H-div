@@ -19,13 +19,12 @@
 
 /* For debugging */
 void print_int64_ts (int64_t* vals, int64_t nval) {
-  for (int i=0; i<nval; i++) {
+  for (int64_t i=0; i<nval; i++) {
     printf ("%"PRId64": %"PRId64"\n", i, vals[i]); }}
 void print_doubles (double* vals, int64_t nval) {
-  for (int i=0; i<nval; i++) {
+  for (int64_t i=0; i<nval; i++) {
     printf ("%"PRId64": %.16g\n", i, vals[i]); }}
 
-
 /* Aux functions called by print_bem_input */
 // print 1 int64_t value (val)
 void print_bem_input_int64_t (FILE* fp, int64_t val,
