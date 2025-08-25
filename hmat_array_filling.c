@@ -1,22 +1,25 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <math.h>
 #include <time.h>
+#include <string.h>
+#include <getopt.h>
 #include <sys/time.h>
 #include <mkl.h>
+
 #include "data/bem_file.h"
 
 #ifdef DEBUG
 #include <assert.h>
 #endif
 
-// #define INPUT_DEFAULT "bem_data/input_10ts.txt"             //small data for dbg
+#define INPUT_DEFAULT "data/input_10ts.txt"             //small data for dbg
 // #define INPUT_DEFAULT "bem_data/input_100ts.txt"          //Sphere
 // #define INPUT_DEFAULT "bem_data/input_10ts_c30_3_3_4.txt"   //SphereCube
-#define INPUT_DEFAULT "bem_data/input_10ts_p30_4.txt"       //SpherePyramid
+// #define INPUT_DEFAULT "bem_data/input_10ts_p30_4.txt"       //SpherePyramid
 // #define INPUT_DEFAULT "bem_data/input_216h_5x10.txt"        //Humans
 // #define INPUT_DEFAULT "bem_data/input_84tp7_30_2p.txt"      //SpherePyramidPyramid
-
 
 /*********define cluster************/
 typedef struct cluster cluster;
@@ -35,18 +38,18 @@ struct cluster{
 /*********define leafMtx***********/ //information of H-matrix
 typedef struct leafmtx leafmtx;
 struct leafmtx{
-  int ltmtx;                         //kind of the matrix; 1:rk 2:full
-  int kt;                            //rank of the partition
-  int nstrtl,ndl;                    //the coordination of the first element of partition
-  int nstrtt,ndt;                    //the length & width of the partition
+  int ltmtx;                         //kind of the matrix; 1:Lji 2:full密行列
+  int kt;                            //rank of the partition L字の太さ
+  int nstrtl,ndl;                    //(ndl,ndt): x and y of the partition
+  int nstrtt,ndt;                    //(nstrtt,nstrtt): x-len and y-len of the partition
   double *a1;
-  double *a2;                    //the elements of the partition, a2 is row, a1 is col
-  int ndpth;
+  double *a2;                    //the elements of the partition, a2 is row, a1 is col a1��L���̏ca2�͉�
+  int ndpth;                     //行列を樹形図のように分けたときの深さ
 };
 
 /*********define leafmtxp*********/  //whole H-matrix
 typedef struct leafmtxp leafmtxp;
-struct leafmtxp{
+struct leafmtxp{  //1つのオブジェクト。その下のやつが配列を表している
   leafmtx* st_leafmtx;               //list of partitions (BCT leaf-nodes)
   int nlf;                           //number of partitions
   int nlfkt;                         //number ot partitions approximated
@@ -98,17 +101,34 @@ int middle_flag = 0;
 
 int bal[32];
 int main(int argc, char **argv){
+  int opt_t = 0;
+  const char *fname = INPUT_DEFAULT;
+  { // Parse options
+    int opt;
+    while ((opt=getopt(argc, argv, "t")) != -1) {
+      switch (opt) {
+        case 't':
+          // -t: Generate txt file which is given to hmat-assign.pl to visualize the H-matrix
+          opt_t = 1;
+          break;
+        default:
+          fprintf(stderr, "Usage: %s [-t] [input_file]\n", argv[0]);
+          exit(1);
+      }
+    }
+  }
+  if (optind < argc) {
+    fname = argv[optind];
+  }
   /******** read file *********/
-  char *fname;
   FILE *file;
   int countOfNode=0;
   int count = 0;
   int i;
-  double (*coordOfNode)[3];
-  double (*coordOfFace)[3];
+  double (*coordOfNode)[3]; //要素数３の配列（頂点3つ）
+  double (*coordOfFace)[3]; //Nodeの3つの重心
   int (*face2node)[3];
   struct bem_input bi;
-  fname = (argc >= 2)?argv[1]:INPUT_DEFAULT;
   file = fopen(fname,"r");
   if(file == NULL){
     printf("Error: Unable to input file '%s'!\n", fname);
@@ -120,13 +140,13 @@ int main(int argc, char **argv){
     }
     char line[100];
     countOfNode = bi.nNode;
-    bgmid = bi.coordOfNode;
+    bgmid = bi.coordOfNode; 
     count = bi.nFace;
     zgmid = bi.coordOfFace;
     f2n = bi.face2node;
   }
   fclose(file);
-  double param[100];
+  double param[100]; //どれくらいの誤差を許容するか（行列の密度的な）などのパラメータ
   for(i=0;i<100;i++){
     param[i] = 0;
   }
@@ -136,7 +156,7 @@ int main(int argc, char **argv){
   param[51] = 2.0;
 
   /***********clustering***********/
-  leafmtxp *st_leafmtxp;
+  leafmtxp *st_leafmtxp; //数定義
   int *lod;
   int *lnmtx;
   int nofc = count;
@@ -154,10 +174,78 @@ int main(int argc, char **argv){
   double start = get_wall_time();
   supermatrix_construction_cog_leafmtrx(st_leafmtxp,param,lod,lnmtx,nofc,nffc,ndim);  // construction of Leaf-matrix 
   double end = get_wall_time();
-  printf("MP time:%f\n", (end - start));
+  printf("MP time:%f\n", (end - start)); // time spent for generation of H-matrix
+  
+  if (opt_t) {
+    // Generate txt file which is given to hmat-assign.pl to visualize the H-matrix
+    // fname_hmat = fname + "_hmat.txt" からディレクトリを取り除いたもの
+    char fname_hmat0[strlen(fname)+10];
+    strcpy(fname_hmat0, fname);
+    strcat(fname_hmat0, "_hmat");
+    char *fname_hmat = strrchr(fname_hmat0, '/');
+    fname_hmat=fname_hmat?fname_hmat+1:fname_hmat0;
+
+    FILE *fp_hmat = fopen (fname_hmat, "w");
+    printf("nlf:%d\n", st_leafmtxp->nlf);
+    printf("nlfkt:%d\n", st_leafmtxp->nlfkt);
+    for(int i=0; i<st_leafmtxp->nlf; i++) {
+      leafmtx *leaf = &(st_leafmtxp->st_leafmtx[i]);
+      int thr=0;
+      // <thr>, <x0>, <y0>, <x1>, <y1>, <mattype>
+      fprintf (fp_hmat, "%d, %d, %d, %d, %d, %d\n",
+        thr, leaf->nstrtl, leaf->nstrtt, leaf->nstrtl+leaf->ndl-1, leaf->nstrtt+leaf->ndt-1,
+        leaf->ltmtx // 1:Rk 2:Full
+      );
+      // printf("kt: %d\n", leaf->kt);
+      // printf("ndpth: %d\n", leaf->ndpth);
+    }
+    fclose (fp_hmat);
+    printf ("H-matrix info is written in %s\n", fname_hmat);
+  }
+
+  // H-Matvec
+  double b[nofc], c[nofc];
+
+  double start2 = get_wall_time();
+  for(int i=0; i<st_leafmtxp->nlf; i++){
+    leafmtx *leaf = &(st_leafmtxp->st_leafmtx[i]);
+    if(leaf->ltmtx == 1){   // Rk-matrix: a1 is |, a2 is - (a1 is transposed)
+      printf ("leaf[%d](Rk): kt=%d, ndt=%d, ndl=%d, a1_size=%ld, a2_size=%ld\n",
+        i, leaf->kt, leaf->ndt, leaf->ndl,
+        malloc_usable_size(leaf->a1)/sizeof(double), 
+        malloc_usable_size(leaf->a2)/sizeof(double));
+      double a2b[leaf->kt];
+      for(int i=0; i<leaf->kt; i++){
+        a2b[i]=0;
+      }
+      for(int i=0; i<leaf->kt; i++){ // a2b=a2*b
+        for(int j=0; j<leaf->ndl; j++){
+          a2b[i] += leaf->a2[i*leaf->ndl+j]*b[leaf->nstrtl+j];
+        }
+      } 
+      for(int i=0; i<leaf->ndt; i++){ // c=a1*a2b
+        for(int j=0; j<leaf->kt; j++){
+          //reducer対象
+          c[leaf->nstrtt+i] += leaf->a1[j*leaf->ndt+i]*a2b[j];
+        }
+      }
+    } else { // full-matrix
+      printf ("leaf[%d](full): kt=%d, ndt=%d, ndl=%d, a1_size=%ld\n",
+        i, leaf->kt, leaf->ndt, leaf->ndl,
+        malloc_usable_size(leaf->a1)/sizeof(double)); 
+      for(int i=0; i<leaf->ndt; i++){
+        for(int j=0; j<leaf->ndl; j++){
+          //reducer対象
+          c[leaf->nstrtt+i] += leaf->a1[i*leaf->ndl+j]*b[leaf->nstrtl+j];
+        }
+      }
+    }
+  }
+  double end2 = get_wall_time();
+  printf("Matvec time:%f\n", (end2 - start2));
   return 0;
 }
-
+ 
 #ifdef DEBUG
 int *lod0;
 #endif
@@ -837,8 +925,8 @@ void fill_leafmtx(leafmtx *st_lf, double znrmmat, int *lnmtx, int nd, int nlf){
     if(ltmtx == 1){
       start = get_wall_time();
 
-      st_lf[ip].a1 = (double*)malloc(sizeof(double) * ndt * kparam);
-      st_lf[ip].a2 = (double*)malloc(sizeof(double) * ndl * kparam);
+      st_lf[ip].a1 = (double*)malloc(sizeof(double) * ndt * kparam);//ndt*kparamのa1L字の縦
+      st_lf[ip].a2 = (double*)malloc(sizeof(double) * ndl * kparam);//L字の横
       if(!st_lf[ip].a1 && !st_lf[ip].a2){
         printf("allocate a1 or a2 failed!\n");
         exit(99);
@@ -884,7 +972,7 @@ void fill_leafmtx(leafmtx *st_lf, double znrmmat, int *lnmtx, int nd, int nlf){
         int ill = il + nstrtl;
         for(it=0;it<ndt;it++){
           int itt = it + nstrtt;
-          tempa1[il][it] = entry_ij(ill, itt);
+          tempa1[il][it] = entry_ij(ill, itt); // calculate the entry of the matrix
         }
       }
       end = get_wall_time();
@@ -1144,3 +1232,4 @@ double get_wall_time(){
 double get_cpu_time(){
   return (double)clock() / CLOCKS_PER_SEC;
 }
+
