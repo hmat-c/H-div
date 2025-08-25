@@ -190,6 +190,10 @@ f2n = bi.face2node;
 
 ### BEMデータファイルフォーマット
 
+BEMデータファイルは**テキスト形式**と**バイナリ形式**の2種類をサポートしています。
+
+#### テキスト形式
+
 データファイルは以下の構造を持つテキストファイルです：
 
 ```
@@ -206,7 +210,47 @@ f2n = bi.face2node;
 ...
 ```
 
-詳細な仕様については、[SPEC.md](SPEC.md)を参照してください。
+#### バイナリ形式
+
+バイナリ形式は高速な読み書きと小さなファイルサイズを実現します。
+
+**バイナリフォーマット構造：**
+
+```
+"BI_BINARY\n"                    # プリアンブル（ASCII文字列）
+int64_t: nNode                   # 頂点数
+double[nNode][3]: coordOfNode    # 頂点座標 (x,y,z)
+int64_t: nFace                   # 面の数
+int64_t: nNodePerFace            # 面ごとの頂点数（常に3）
+int64_t: nIFValue                # 面ごとの整数パラメータ数
+int64_t: nDFValue                # 面ごとの実数パラメータ数
+int64_t[nFace][3]: idOfFace      # 面を構成する頂点インデックス
+double[nFace][3]: coordOfFace    # 面の中心座標
+int[nFace][3]: face2node         # 面を構成する頂点インデックス（int32）
+int64_t[nFace][nIFValue]: IFValue    # 整数パラメータ（存在する場合）
+double[nFace][nDFValue]: DFValue      # 実数パラメータ（存在する場合）
+```
+
+**データ型：**
+- `int64_t`: 8バイト整数（リトルエンディアン）
+- `int`: 4バイト整数（リトルエンディアン）
+- `double`: 8バイト浮動小数点（IEEE 754、リトルエンディアン）
+
+#### フォーマット変換
+
+`bem_convert`を使用してテキスト形式とバイナリ形式を相互変換できます：
+
+```bash
+# テキストからバイナリへ変換
+./bem_convert -o output_filename -b input.txt
+
+# バイナリからテキストへ変換
+./bem_convert -o output_filename -t input.bin
+
+# 自動判定（拡張子で出力形式を決定）
+./bem_convert input.txt    # → input.bin を生成
+./bem_convert input.bin    # → input.txt を生成
+```
 
 ## 付属ツール（Python）
 
@@ -231,6 +275,7 @@ BEMデータの視覚的な確認を支援するPythonツールです。
 - **統計情報表示**: 表面積、重心などの情報を表示
 - **リセット機能**: 設定を初期状態に戻す
 - **自動的な軸範囲設定**: データに合わせて軸範囲を自動調整
+- **バイナリ形式対応**: 高速読み込みのためのバイナリ形式（.bin）をサポート
 
 ### Python環境の準備
 
@@ -305,6 +350,12 @@ python3 visualize_polygon.py -o output input.txt
 
 # ベクターファイルサイズ制限を10MBに変更
 python3 visualize_polygon.py -o large_output.pdf --max-vector-size 10 input.txt
+
+# バイナリファイルを可視化（自動判定）
+python3 visualize_polygon.py input_196kp26.bin
+
+# バイナリファイルを軽量モードで高速可視化
+python3 visualize_polygon.py -l -o binary_vis.png input_2ms.bin
 ```
 
 ### 操作方法
@@ -405,6 +456,10 @@ BEMデータ処理ツールおよび3Dポリゴンデータ可視化ツール開
 
 ## 更新履歴
 
+- 2025-08-25:
+  - バイナリフォーマットのサポートを追加
+  - visualize_polygon.pyがバイナリファイル（.bin）を直接読み込み可能に
+  - バイナリフォーマットの詳細仕様をドキュメントに追加
 - 2025-08-24:
   - ベクター形式（PDF・SVG）での画像出力機能を追加
   - 自動ファイルサイズ制御機能を追加（ベクターファイルが指定サイズを超える場合の自動PNG切り替え）

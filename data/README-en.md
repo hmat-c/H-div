@@ -190,6 +190,10 @@ f2n = bi.face2node;
 
 ### BEM Data File Format
 
+BEM data files support two formats: **text format** and **binary format**.
+
+#### Text Format
+
 Data files are text files with the following structure:
 
 ```
@@ -206,7 +210,47 @@ Data files are text files with the following structure:
 ...
 ```
 
-For detailed specifications, see [SPEC.md](SPEC.md).
+#### Binary Format
+
+Binary format provides fast I/O and smaller file sizes.
+
+**Binary Format Structure:**
+
+```
+"BI_BINARY\n"                    # Preamble (ASCII string)
+int64_t: nNode                   # Number of vertices
+double[nNode][3]: coordOfNode    # Vertex coordinates (x,y,z)
+int64_t: nFace                   # Number of faces
+int64_t: nNodePerFace            # Vertices per face (always 3)
+int64_t: nIFValue                # Integer parameters per face
+int64_t: nDFValue                # Double parameters per face
+int64_t[nFace][3]: idOfFace      # Vertex indices composing faces
+double[nFace][3]: coordOfFace    # Face center coordinates
+int[nFace][3]: face2node         # Vertex indices composing faces (int32)
+int64_t[nFace][nIFValue]: IFValue    # Integer parameters (if exist)
+double[nFace][nDFValue]: DFValue      # Double parameters (if exist)
+```
+
+**Data Types:**
+- `int64_t`: 8-byte integer (little-endian)
+- `int`: 4-byte integer (little-endian)  
+- `double`: 8-byte floating point (IEEE 754, little-endian)
+
+#### Format Conversion
+
+Use `bem_convert` to convert between text and binary formats:
+
+```bash
+# Convert text to binary
+./bem_convert -o output_filename -b input.txt
+
+# Convert binary to text
+./bem_convert -o output_filename -t input.bin
+
+# Auto-detect (determine output format by extension)
+./bem_convert input.txt    # → generates input.bin
+./bem_convert input.bin    # → generates input.txt
+```
 
 ## Attached Tools (Python)
 
@@ -231,6 +275,7 @@ An advanced 3D visualization program with comprehensive features.
 - **Statistics display**: Display information such as surface area and centroid
 - **Reset function**: Return settings to initial state
 - **Automatic axis range adjustment**: Automatically adjusts axis range to fit data
+- **Binary format support**: Supports binary format (.bin) for fast loading
 
 ### Python Environment Setup
 
@@ -305,6 +350,12 @@ python3 visualize_polygon.py -o output input.txt
 
 # Change vector file size limit to 10MB
 python3 visualize_polygon.py -o large_output.pdf --max-vector-size 10 input.txt
+
+# Visualize binary file (auto-detected)
+python3 visualize_polygon.py input_196kp26.bin
+
+# Fast visualization of binary file in lightweight mode
+python3 visualize_polygon.py -l -o binary_vis.png input_2ms.bin
 ```
 
 ### Controls
@@ -405,6 +456,10 @@ BEM Data Processing Tools and 3D Polygon Data Visualization Tool Development Tea
 
 ## Update History
 
+- 2025-08-25:
+  - Added binary format support
+  - visualize_polygon.py can now directly read binary files (.bin)
+  - Added detailed binary format specification to documentation
 - 2025-08-24:
   - Added image output functionality in vector formats (PDF/SVG)
   - Added automatic file size control (automatic PNG conversion when vector files exceed specified size)

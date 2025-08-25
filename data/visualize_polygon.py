@@ -8,9 +8,67 @@ import sys
 import argparse
 from matplotlib.widgets import Slider, Button
 import matplotlib.colors as mcolors
+import struct
 
 def read_polygon_data(filename):
-    """ポリゴンデータを読み込む関数"""
+    """ポリゴンデータを読み込む関数（テキストまたはバイナリ形式）"""
+    # ファイルの拡張子でフォーマットを判定
+    if filename.endswith('.bin'):
+        return read_polygon_data_binary(filename)
+    else:
+        return read_polygon_data_text(filename)
+
+def read_polygon_data_binary(filename):
+    """バイナリ形式のポリゴンデータを読み込む関数"""
+    with open(filename, 'rb') as f:
+        # プリアンブルをチェック
+        preamble = f.readline().decode('ascii').strip()
+        if preamble != 'BI_BINARY':
+            raise ValueError(f"Invalid binary file format: {preamble}")
+        
+        # 座標数を読み込む（int64_t）
+        n_vertices = np.fromfile(f, dtype=np.int64, count=1)[0]
+        print(f"座標数: {n_vertices}")
+        
+        # 座標データを読み込む（double * 3 * n_vertices）
+        vertices = np.fromfile(f, dtype=np.float64, count=n_vertices * 3).reshape(n_vertices, 3)
+        
+        # 面の数を読み込む（int64_t）
+        n_faces = np.fromfile(f, dtype=np.int64, count=1)[0]
+        print(f"面の数: {n_faces}")
+        
+        # 面ごとの頂点数（int64_t）
+        n_nodes_per_face = np.fromfile(f, dtype=np.int64, count=1)[0]
+        if n_nodes_per_face != 3:
+            raise ValueError(f"Only triangular faces are supported, got {n_nodes_per_face}")
+        
+        # 面ごとのintパラメータ数（int64_t）
+        n_if_value = np.fromfile(f, dtype=np.int64, count=1)[0]
+        
+        # 面ごとのdoubleパラメータ数（int64_t）
+        n_df_value = np.fromfile(f, dtype=np.int64, count=1)[0]
+        
+        # 面データを読み込む（int64_t * 3 * n_faces）
+        faces = np.fromfile(f, dtype=np.int64, count=n_faces * 3).reshape(n_faces, 3)
+        
+        # 面の中心座標を読み込む（double * 3 * n_faces）
+        # これは可視化には不要なのでスキップ
+        f.seek(8 * 3 * n_faces, 1)  # 1 = SEEK_CUR
+        
+        # face2nodeデータを読み込む（int * 3 * n_faces）
+        # これも可視化には不要なのでスキップ
+        f.seek(4 * 3 * n_faces, 1)
+        
+        # IFValueとDFValueがある場合はスキップ
+        if n_if_value > 0:
+            f.seek(8 * n_if_value * n_faces, 1)
+        if n_df_value > 0:
+            f.seek(8 * n_df_value * n_faces, 1)
+    
+    return vertices, faces
+
+def read_polygon_data_text(filename):
+    """テキスト形式のポリゴンデータを読み込む関数"""
     with open(filename, 'r') as f:
         lines = f.readlines()
     
